@@ -1,0 +1,13 @@
+{
+  "repository": "example-org/KnownFaces",
+  "reviewer": "example-reviewer",
+  "subscription": "00000000-0000-4000-8000-000000000001",
+  "homeOperator": "00000000-0000-4000-8000-000000000002",
+  "authorizedUser": "00000000-0000-4000-8000-000000000003",
+  "resourceGroup": "rg-knownfaces",
+  "trustGroup": "rg-knownfaces-deployment-identities",
+  "siteName": "knownfaces-example",
+  "location": "westeurope",
+  "cameras": {},
+  "subjects": {}
+}

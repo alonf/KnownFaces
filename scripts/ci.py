@@ -35,16 +35,17 @@ def main():
         "--no-interactive",
     )
     with tempfile.TemporaryDirectory() as directory:
-        run([bicep(), "lint", "infra/main.bicep"])
-        run(
-            [
-                bicep(),
-                "build",
-                "infra/main.bicep",
-                "--outfile",
-                str(Path(directory) / "arm.json"),
-            ]
-        )
+        for source in sorted(Path("infra").rglob("*.bicep")):
+            run([bicep(), "lint", str(source)])
+            run(
+                [
+                    bicep(),
+                    "build",
+                    str(source),
+                    "--outfile",
+                    str(Path(directory) / "arm.json"),
+                ]
+            )
         payload, _, code_sha = package()
         site_root = Path(directory) / "wwwroot"
         with ZipFile(BytesIO(payload)) as archive:
@@ -68,6 +69,56 @@ def main():
             "/check.cjs",
         )
     check("node", "--test", "gateway/gateway.test.cjs")
+    check(
+        "docker",
+        "compose",
+        "-f",
+        "infra/home/compose.yaml",
+        "--profile",
+        "listener",
+        "config",
+        "--quiet",
+        env={
+            **os.environ,
+            "KF_IMAGE": "knownfaces:ci",
+            "KF_HCM_IMAGE": "knownfaces-hcm:ci",
+        },
+    )
+    check(
+        "docker",
+        "build",
+        "-t",
+        "knownfaces-hcm:ci",
+        "-f",
+        "infra/home/Dockerfile.hcm",
+        "infra/home",
+    )
+    check(
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--entrypoint",
+        "hcm",
+        "knownfaces-hcm:ci",
+        "add-from-file",
+        "--help",
+    )
+    check(
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "-v",
+        f"{Path('infra/home').resolve()}:/home-src:ro",
+        "--entrypoint",
+        "bash",
+        "knownfaces-hcm:ci",
+        "-n",
+        "/home-src/install.sh",
+    )
     check(
         "docker",
         "run",

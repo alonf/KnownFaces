@@ -1,0 +1,15 @@
+FROM python:3.13-slim AS fetch
+WORKDIR /tmp
+ADD https://download.microsoft.com/download/HybridConnectionManager-Linux.tar.gz /tmp/hcm.tgz
+RUN echo '9a3257be23453443e4f848eef342cced1547cee1c9f4193afff22d2ced80ee9c  hcm.tgz' | sha256sum -c - && tar xzf hcm.tgz
+
+FROM python:3.13-slim
+ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1 DOTNET_PRINT_TELEMETRY_MESSAGE=false
+COPY --from=fetch /tmp/HybridConnectionManager/Service /opt/hcm/
+COPY --from=fetch /tmp/HybridConnectionManager/CLI/hcm /usr/local/bin/hcm
+COPY start-hcm.sh /usr/local/bin/start-hcm
+COPY relay-proxy.py /opt/relay-proxy.py
+WORKDIR /opt/hcm
+RUN python -c "import json,pathlib; p=pathlib.Path('appsettings.json'); d=json.loads(p.read_bytes()); d['ProxySettings'].update(UseProxy=True, ProxyAddress='http://relay-proxy:3128'); p.write_text(json.dumps(d))"
+RUN chmod 755 HybridConnectionManagerService /usr/local/bin/hcm /usr/local/bin/start-hcm
+ENTRYPOINT ["/usr/local/bin/start-hcm"]

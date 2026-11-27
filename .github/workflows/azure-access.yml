@@ -1,0 +1,65 @@
+name: KnownFaces scoped Azure access
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        type: choice
+        default: preview
+        required: true
+        options: [preview, apply]
+      reviewed_run:
+        description: Successful access preview run for this commit
+        type: string
+      approved_digest:
+        description: Independently approved access plan
+        type: string
+permissions: {}
+concurrency:
+  group: knownfaces-azure
+  cancel-in-progress: false
+jobs:
+  access:
+    if: vars.KF_ACCESS_ENABLED == 'true' && github.ref == 'refs/heads/main' && github.ref_protected
+    environment: ${{ inputs.operation == 'apply' && 'knownfaces-access-apply' || 'knownfaces-access-preview' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+      actions: read
+    env:
+      CONFIG: ${{ secrets.KF_ACCESS_CONFIG }}
+      REVIEW_RUN: ${{ inputs.reviewed_run }}
+      DIGEST: ${{ inputs.approved_digest }}
+      REVIEWER_ID: ${{ vars.KF_REVIEWER_ID }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - if: inputs.operation == 'apply'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$REVIEW_RUN" =~ ^[0-9]+$ && "$DIGEST" =~ ^[0-9a-f]{64}$ && "$REVIEWER_ID" =~ ^[0-9]+$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/approvals" |
+            jq -e --arg digest "$DIGEST" --arg reviewer "$REVIEWER_ID" --arg actor "$GITHUB_ACTOR" --arg trigger "$GITHUB_TRIGGERING_ACTOR" \
+              'any(.[]; .state=="approved" and (.user.id|tostring)==$reviewer and .user.login!=$actor and .user.login!=$trigger and
+                .comment==("approve "+$digest) and any(.environments[]; .name=="knownfaces-access-apply"))' >/dev/null
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$REVIEW_RUN" |
+            jq -e --arg sha "$GITHUB_SHA" '.event=="workflow_dispatch" and .path==".github/workflows/azure-access.yml" and .head_branch=="main" and .head_sha==$sha and .conclusion=="success"' >/dev/null
+          gh run download "$REVIEW_RUN" -n access-review -D "$RUNNER_TEMP/reviewed"
+      - run: bash scripts/install-bicep.sh
+      - uses: azure/login@eec3c95657c1536435858eda1f3ff5437fee8474
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - run: |
+          umask 077
+          printf '%s' "$CONFIG" > "$RUNNER_TEMP/access-config.json"
+      - if: inputs.operation == 'preview'
+        run: python3 -m scripts.bootstrap_infra resource-access --config "$RUNNER_TEMP/access-config.json" --record "$RUNNER_TEMP/review.json"
+      - if: inputs.operation == 'preview'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with: { name: access-review, path: "${{ runner.temp }}/review.json", retention-days: 3 }
+      - if: inputs.operation == 'apply'
+        run: python3 -m scripts.bootstrap_infra resource-access --config "$RUNNER_TEMP/access-config.json" --approved "$RUNNER_TEMP/reviewed/review.json" --digest "$DIGEST"

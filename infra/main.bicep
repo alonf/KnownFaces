@@ -7,6 +7,7 @@ param siteName string
 param location string = resourceGroup().location
 @allowed(['blocked', 'synthetic'])
 param edgeState string = 'blocked'
+param attachRelay bool = true
 @minLength(64)
 @maxLength(64)
 param gatewaySha string
@@ -59,7 +60,7 @@ resource connection 'Microsoft.Relay/namespaces/hybridConnections@2024-01-01' = 
   name: 'mcp'
   properties: {
     requiresClientAuthorization: true
-    userMetadata: string([{ key: 'endpoint', value: '${endpoint}:${port}' }])
+    userMetadata: '[{"key":"endpoint","value":"knownfaces-mcp.invalid:8094"}]'
   }
 }
 resource send 'Microsoft.Relay/namespaces/hybridConnections/authorizationRules@2024-01-01' = {
@@ -83,27 +84,31 @@ resource site 'Microsoft.Web/sites@2024-11-01' = {
     httpsOnly: true
     publicNetworkAccess: active ? 'Enabled' : 'Disabled'
     clientAffinityEnabled: false
-    siteConfig: {
-      linuxFxVersion: 'NODE|22-lts'
-      appCommandLine: 'cd /home/site/wwwroot && test "$(sha256sum gateway.cjs)" = "$KF_GATEWAY_SHA  gateway.cjs" && exec node gateway.cjs'
-      alwaysOn: true
-      ftpsState: 'Disabled'
-      minTlsVersion: '1.2'
-      scmMinTlsVersion: '1.2'
-      httpLoggingEnabled: false
-      detailedErrorLoggingEnabled: false
-      requestTracingEnabled: false
-      ipSecurityRestrictionsDefaultAction: active ? 'Allow' : 'Deny'
-      scmIpSecurityRestrictionsUseMain: false
-      scmIpSecurityRestrictionsDefaultAction: 'Deny'
-      appSettings: [
-        { name: 'KF_EDGE_STATE', value: edgeState }
-        { name: 'KF_GATEWAY_SHA', value: gatewaySha }
-        { name: 'WEBSITE_RUN_FROM_PACKAGE', value: 'https://${packages.name}.blob.${environment().suffixes.storage}/gateway/${packageSha}.zip' }
-        { name: 'WEBSITE_RUN_FROM_PACKAGE_BLOB_MI_RESOURCE_ID', value: 'SystemAssigned' }
-        { name: 'WEBSITES_ENABLE_APP_SERVICE_STORAGE', value: 'true' }
-      ]
-    }
+  }
+}
+resource web 'Microsoft.Web/sites/config@2024-11-01' = {
+  parent: site
+  name: 'web'
+  properties: {
+    linuxFxVersion: 'NODE|22-lts'
+    appCommandLine: 'cd /home/site/wwwroot && test "$(sha256sum gateway.cjs)" = "$KF_GATEWAY_SHA  gateway.cjs" && exec node gateway.cjs'
+    alwaysOn: true
+    ftpsState: 'Disabled'
+    minTlsVersion: '1.2'
+    scmMinTlsVersion: '1.2'
+    httpLoggingEnabled: false
+    detailedErrorLoggingEnabled: false
+    requestTracingEnabled: false
+    ipSecurityRestrictionsDefaultAction: active ? 'Allow' : 'Deny'
+    scmIpSecurityRestrictionsUseMain: false
+    scmIpSecurityRestrictionsDefaultAction: 'Deny'
+    appSettings: [
+      { name: 'KF_EDGE_STATE', value: edgeState }
+      { name: 'KF_GATEWAY_SHA', value: gatewaySha }
+      { name: 'WEBSITE_RUN_FROM_PACKAGE', value: 'https://${packages.name}.blob.${environment().suffixes.storage}/gateway/${packageSha}.zip' }
+      { name: 'WEBSITE_RUN_FROM_PACKAGE_BLOB_MI_RESOURCE_ID', value: 'SystemAssigned' }
+      { name: 'WEBSITES_ENABLE_APP_SERVICE_STORAGE', value: 'true' }
+    ]
   }
 }
 resource ftp 'Microsoft.Web/sites/basicPublishingCredentialsPolicies@2024-11-01' = {
@@ -116,7 +121,7 @@ resource scm 'Microsoft.Web/sites/basicPublishingCredentialsPolicies@2024-11-01'
   name: 'scm'
   properties: { allow: false }
 }
-resource binding 'Microsoft.Web/sites/hybridConnectionNamespaces/relays@2024-11-01' = {
+resource binding 'Microsoft.Web/sites/hybridConnectionNamespaces/relays@2024-11-01' = if (attachRelay) {
   name: '${site.name}/${relay.name}/${connection.name}'
   properties: {
     hostname: endpoint

@@ -1,0 +1,71 @@
+name: knownfaces-home
+services:
+  local:
+    image: ${KF_IMAGE:?run install.sh}
+    restart: unless-stopped
+    ports: ["127.0.0.1:8093:8093"]
+    volumes: ["gallery:/data"]
+    networks: [local]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8093/health',timeout=3)"]
+      interval: 5s
+      timeout: 4s
+      retries: 24
+  mcp:
+    image: ${KF_IMAGE:?run install.sh}
+    restart: unless-stopped
+    depends_on:
+      local: {condition: service_healthy}
+    environment: {KF_REMOTE_ENABLED: "1", KF_REMOTE_POLICY: /policy.json}
+    command: ["uvicorn","knownfaces.remote:create_remote","--factory","--host","0.0.0.0","--port","8094","--no-access-log","--no-proxy-headers"]
+    volumes: ["gallery:/data", "/etc/knownfaces/policy.json:/policy.json:ro"]
+    ports: ["127.0.0.1:8094:8094"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks:
+      relay: {aliases: [knownfaces-mcp.invalid]}
+      mcp-out: {}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import json,urllib.request,urllib.parse; u=json.load(open('/policy.json'))['resource']; h=urllib.parse.urlsplit(u).netloc; r=urllib.request.Request('http://localhost:8094/.well-known/oauth-protected-resource/mcp',headers={'Host':h}); assert json.load(urllib.request.urlopen(r,timeout=3))['resource']==u"]
+      interval: 5s
+      timeout: 4s
+      retries: 24
+  listener:
+    image: ${KF_HCM_IMAGE:?run install.sh}
+    environment:
+      HTTPS_PROXY: http://relay-proxy:3128
+      HTTP_PROXY: http://relay-proxy:3128
+      NO_PROXY: localhost,127.0.0.1,knownfaces-mcp.invalid
+    restart: unless-stopped
+    profiles: [listener]
+    depends_on:
+      mcp: {condition: service_healthy}
+      relay-proxy: {condition: service_started}
+    volumes: ["/etc/knownfaces/listener.json:/run/secrets/listener.json:ro"]
+    networks: [relay]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    logging: {driver: none}
+    healthcheck:
+      test: ["CMD", "test", "-f", "/run/hcm-ready"]
+      interval: 3s
+      timeout: 2s
+      retries: 30
+  relay-proxy:
+    image: ${KF_HCM_IMAGE:?run install.sh}
+    profiles: [listener]
+    entrypoint: ["python", "/opt/relay-proxy.py"]
+    user: "65534:65534"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    networks: [relay, proxy-out]
+    logging: {driver: none}
+networks:
+  local: {}
+  relay: {internal: true}
+  mcp-out: {}
+  proxy-out: {}
+volumes:
+  gallery: {}

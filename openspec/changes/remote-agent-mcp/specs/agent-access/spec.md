@@ -64,3 +64,17 @@ The pilot SHALL verify direct ChatGPT-to-Entra discovery, client configuration, 
 
 - **WHEN** a live stage fails
 - **THEN** the operator records the exact stage and error before proposing a separately bound compatibility adapter
+
+### Requirement: Reproducible hybrid deployment
+
+The release SHALL support a dedicated on-premises Ubuntu Hyper-V guest and installation alongside existing Docker services on an owner's Linux guest. Updates SHALL preserve the gallery and private policy. Azure release operations SHALL use separate environment-bound identities and digest-bound approval for the blocked infrastructure, gateway publication and pilot activation.
+
+#### Scenario: Reuse the Ring guest
+
+- **WHEN** the host installs or updates a reviewed KnownFaces commit over trusted SSH
+- **THEN** only the KnownFaces Compose project is reconciled, its admin ports bind to guest loopback, and a failed application rollout restores the prior installed image when available
+
+#### Scenario: Disconnect the home listener
+
+- **WHEN** the operator runs the scripted cutoff
+- **THEN** the Relay listener and its outbound proxy stop while local recognition and administration continue

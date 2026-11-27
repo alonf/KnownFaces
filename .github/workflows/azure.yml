@@ -6,12 +6,12 @@ on:
         type: choice
         required: true
         default: preview
-        options: [preview, provision-blocked, activate-synthetic]
+        options: [preview, provision-foundation, provision-blocked, publish-gateway, activate-synthetic]
       preview_target:
         description: Target state for a preview
         type: choice
         default: blocked
-        options: [blocked, synthetic]
+        options: [foundation, blocked, synthetic]
       reviewed_run:
         description: Prior successful preview run ID for apply
         type: string
@@ -56,7 +56,7 @@ jobs:
   apply:
     if: vars.KF_AZURE_ENABLED == 'true' && github.ref == 'refs/heads/main' && github.ref_protected && inputs.operation != 'preview' && vars.KF_PROTECTED_APPLY == 'verified'
     runs-on: ubuntu-24.04
-    environment: knownfaces-apply
+    environment: ${{ inputs.operation == 'publish-gateway' && 'knownfaces-publish' || 'knownfaces-apply' }}
     permissions:
       contents: read
       actions: read
@@ -69,6 +69,8 @@ jobs:
       OPERATION: ${{ inputs.operation }}
       REVIEW_RUN: ${{ inputs.reviewed_run }}
       APPROVED_DIGEST: ${{ inputs.approved_digest }}
+      REVIEWER_ID: ${{ vars.KF_REVIEWER_ID }}
+      APPLY_ENVIRONMENT: ${{ inputs.operation == 'publish-gateway' && 'knownfaces-publish' || 'knownfaces-apply' }}
       AZURE_CORE_OUTPUT: none
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -79,6 +81,12 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$REVIEW_RUN" =~ ^[0-9]+$ && "$APPROVED_DIGEST" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$REVIEWER_ID" =~ ^[0-9]+$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/approvals" |
+            jq -e --arg digest "$APPROVED_DIGEST" --arg env "$APPLY_ENVIRONMENT" --arg reviewer "$REVIEWER_ID" \
+              --arg actor "$GITHUB_ACTOR" --arg trigger "$GITHUB_TRIGGERING_ACTOR" \
+              'any(.[]; .state=="approved" and (.user.id|tostring)==$reviewer and .user.login!=$actor and
+                 .user.login!=$trigger and .comment==("approve "+$digest) and any(.environments[]; .name==$env))' >/dev/null
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$REVIEW_RUN" |
             jq -e --arg sha "$GITHUB_SHA" '.event=="workflow_dispatch" and .path==".github/workflows/azure.yml" and .head_branch=="main" and .head_sha==$sha and .conclusion=="success"' >/dev/null
           gh run download "$REVIEW_RUN" -n reviewed-plan -D "$RUNNER_TEMP/reviewed"
@@ -88,7 +96,10 @@ jobs:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
-      - run: python3 -m scripts.azure_release "$OPERATION" --approved "$RUNNER_TEMP/reviewed/review.json" --digest "$APPROVED_DIGEST"
+      - if: inputs.operation != 'publish-gateway'
+        run: python3 -m scripts.azure_release "$OPERATION" --approved "$RUNNER_TEMP/reviewed/review.json" --digest "$APPROVED_DIGEST"
+      - if: inputs.operation == 'publish-gateway'
+        run: python3 -m scripts.publish_gateway --approved "$RUNNER_TEMP/reviewed/review.json" --digest "$APPROVED_DIGEST"
   manual-only:
     if: vars.KF_AZURE_ENABLED == 'true' && github.ref == 'refs/heads/main' && inputs.operation != 'preview' && vars.KF_PROTECTED_APPLY != 'verified'
     runs-on: ubuntu-24.04
