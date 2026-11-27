@@ -30,8 +30,10 @@ def verify_release_ruleset(live, desired):
             if field == "required_approving_review_count":
                 meets = type(actual) is int and actual >= expected
             elif field == "required_status_checks":
-                required = {c["context"] for c in expected}
-                meets = required <= {c["context"] for c in actual or []}
+                required = {(c["context"], c["integration_id"]) for c in expected}
+                meets = required <= {
+                    (c["context"], c.get("integration_id")) for c in actual or []
+                }
             elif isinstance(expected, bool):
                 meets = isinstance(actual, bool) and (actual or not expected)
             else:
@@ -94,7 +96,9 @@ def check_protections(c, environments, *, create=False):
                 "type": "required_status_checks",
                 "parameters": {
                     "strict_required_status_checks_policy": True,
-                    "required_status_checks": [{"context": "verify"}],
+                    "required_status_checks": [
+                        {"context": "verify", "integration_id": 15368}
+                    ],
                 },
             },
         ],

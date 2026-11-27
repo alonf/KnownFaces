@@ -125,6 +125,6 @@ resource binding 'Microsoft.Web/sites/hybridConnectionNamespaces/relays@2024-11-
     serviceBusNamespace: relay.name
     serviceBusSuffix: '.servicebus.windows.net'
     sendKeyName: send.name
-    sendKeyValue: send.listKeys().primaryKey
+    sendKeyValue: attachRelay ? send.listKeys().primaryKey : ''
   }
 }

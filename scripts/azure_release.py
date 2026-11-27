@@ -136,8 +136,8 @@ def review_generated_fields(change, kind, inputs):
         ),
         "microsoft.web/sites/hybridconnectionnamespaces/relays": (
             "properties.sendKeyValue",
-            "[listKeys(resourceId('Microsoft.Relay/namespaces/hybridConnections/authorizationRules', "
-            "format('kf-{0}', variables('suffix')), 'mcp', 'edge-send'), '2024-01-01').primaryKey]",
+            "[if(parameters('attachRelay'), listKeys(resourceId('Microsoft.Relay/namespaces/hybridConnections/authorizationRules', "
+            "format('kf-{0}', variables('suffix')), 'mcp', 'edge-send'), '2024-01-01').primaryKey, '')]",
             "ARM resolves the primary key of this release's mcp/edge-send rule",
         ),
     }

@@ -29,7 +29,7 @@ def test_release_ruleset_requires_effective_review_and_ci_parameters():
             {
                 "type": "required_status_checks",
                 "parameters": {
-                    "required_status_checks": [{"context": "verify"}],
+                    "required_status_checks": [{"context": "verify", "integration_id": 15368}],
                     "strict_required_status_checks_policy": True,
                 },
             },
@@ -44,7 +44,9 @@ def test_release_ruleset_requires_effective_review_and_ci_parameters():
     for index, field, value in [
         (0, "required_approving_review_count", 0),
         (0, "require_last_push_approval", False),
-        (1, "required_status_checks", [{"context": "other"}]),
+        (1, "required_status_checks", [{"context": "other", "integration_id": 15368}]),
+        (1, "required_status_checks", [{"context": "verify"}]),
+        (1, "required_status_checks", [{"context": "verify", "integration_id": 1}]),
         (1, "strict_required_status_checks_policy", False),
     ]:
         weak = copy.deepcopy(base)
