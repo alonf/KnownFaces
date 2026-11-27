@@ -5,6 +5,48 @@ import runpy
 import pytest
 
 from scripts.azure_release import digest, inspect_plan
+from scripts.configure_github import verify_release_ruleset
+
+
+def test_release_ruleset_requires_effective_review_and_ci_parameters():
+    base = dict(
+        target="branch",
+        enforcement="active",
+        bypass_actors=[],
+        conditions={"ref_name": {"include": ["refs/heads/main"], "exclude": []}},
+        rules=[
+            {
+                "type": "pull_request",
+                "parameters": {
+                    "required_approving_review_count": 1,
+                    "require_last_push_approval": True,
+                },
+            },
+            {
+                "type": "required_status_checks",
+                "parameters": {
+                    "required_status_checks": [{"context": "verify"}],
+                    "strict_required_status_checks_policy": True,
+                },
+            },
+        ],
+    )
+    stronger = copy.deepcopy(base)
+    stronger["rules"][0]["parameters"]["required_approving_review_count"] = 2
+    stronger["rules"][1]["parameters"]["required_status_checks"].append(
+        {"context": "extra"}
+    )
+    verify_release_ruleset(stronger, base)
+    for index, field, value in [
+        (0, "required_approving_review_count", 0),
+        (0, "require_last_push_approval", False),
+        (1, "required_status_checks", [{"context": "other"}]),
+        (1, "strict_required_status_checks_policy", False),
+    ]:
+        weak = copy.deepcopy(base)
+        weak["rules"][index]["parameters"][field] = value
+        with pytest.raises(SystemExit, match="Inadequate release protection"):
+            verify_release_ruleset(weak, base)
 
 
 def test_home_proxy_rejects_private_services_and_non_tls_ports():

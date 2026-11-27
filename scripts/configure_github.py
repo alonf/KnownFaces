@@ -9,6 +9,37 @@ from uuid import UUID
 from scripts.bootstrap_infra import azure, command, config, identities
 
 
+def verify_release_ruleset(live, desired):
+    """Accept the configured protections or stronger PR and status-check requirements."""
+    if (
+        live.get("target") != desired["target"]
+        or live.get("enforcement") != "active"
+        or live.get("bypass_actors") != []
+        or live.get("conditions") != desired["conditions"]
+    ):
+        raise SystemExit(
+            "Release ruleset target, enforcement or bypass settings differ"
+        )
+    rules = {r["type"]: r.get("parameters", {}) for r in live["rules"]}
+    for rule in desired["rules"]:
+        kind = rule["type"]
+        if kind not in rules:
+            raise SystemExit(f"Missing release rule: {kind}")
+        for field, expected in rule.get("parameters", {}).items():
+            actual = rules[kind].get(field)
+            if field == "required_approving_review_count":
+                meets = type(actual) is int and actual >= expected
+            elif field == "required_status_checks":
+                required = {c["context"] for c in expected}
+                meets = required <= {c["context"] for c in actual or []}
+            elif isinstance(expected, bool):
+                meets = isinstance(actual, bool) and (actual or not expected)
+            else:
+                meets = actual == expected
+            if not meets:
+                raise SystemExit(f"Inadequate release protection: {kind}.{field}")
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--config", required=True, type=Path)
@@ -83,21 +114,12 @@ def main():
     )
     matches = [r for r in api(prefix + "/rulesets") if r["name"] == rule["name"]]
     if not matches:
-        api(prefix + "/rulesets", "POST", rule)
+        ruleset_id = api(prefix + "/rulesets", "POST", rule)["id"]
     elif len(matches) != 1:
         raise SystemExit("Ambiguous KnownFaces main ruleset")
     else:
-        live = api(prefix + "/rulesets/" + str(matches[0]["id"]))
-        if (
-            live["enforcement"] != "active"
-            or live.get("bypass_actors")
-            or live.get("conditions") != rule["conditions"]
-            or not {r["type"] for r in rule["rules"]}
-            <= {r["type"] for r in live["rules"]}
-        ):
-            raise SystemExit(
-                "Existing release ruleset differs; review its protection before enabling workflows"
-            )
+        ruleset_id = matches[0]["id"]
+    verify_release_ruleset(api(prefix + "/rulesets/" + str(ruleset_id)), rule)
     existing = {
         e["name"] for e in api(prefix + "/environments?per_page=100")["environments"]
     }
