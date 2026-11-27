@@ -11,8 +11,17 @@ var blobWriter = extensionResourceId(group, 'Microsoft.Authorization/roleDefinit
 var blobReader = subscriptionResourceId('Microsoft.Authorization/roleDefinitions','2a2b9908-6ea1-4ae2-8e65-a410df84e7d1')
 resource relay 'Microsoft.Relay/namespaces@2024-01-01' existing = { name: 'kf-${suffix}' }
 resource connection 'Microsoft.Relay/namespaces/hybridConnections@2024-01-01' existing = { parent: relay, name: 'mcp' }
-resource sender 'Microsoft.Relay/namespaces/hybridConnections/authorizationRules@2024-01-01' existing = { parent: connection, name: 'edge-send' }
-resource listener 'Microsoft.Relay/namespaces/hybridConnections/authorizationRules@2024-01-01' existing = { parent: connection, name: 'home-listen' }
+resource sender 'Microsoft.Relay/namespaces/hybridConnections/authorizationRules@2024-01-01' = {
+  parent: connection
+  name: 'edge-send'
+  properties: { rights: ['Send'] }
+}
+resource listener 'Microsoft.Relay/namespaces/hybridConnections/authorizationRules@2024-01-01' = {
+  parent: connection
+  name: 'home-listen'
+  properties: { rights: ['Listen'] }
+}
+
 resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' existing = { name: 'kf${suffix}' }
 resource blobs 'Microsoft.Storage/storageAccounts/blobServices@2023-05-01' existing = { parent: storage, name: 'default' }
 resource container 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' existing = { parent: blobs, name: 'gateway' }

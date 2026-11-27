@@ -78,3 +78,13 @@ The release SHALL support a dedicated on-premises Ubuntu Hyper-V guest and insta
 
 - **WHEN** the operator runs the scripted cutoff
 - **THEN** the Relay listener and its outbound proxy stop while local recognition and administration continue
+
+#### Scenario: Grant workload rights
+
+- **WHEN** the bootstrap operator previews or applies release-role grants
+- **THEN** the bootstrap verifies effective main-branch review and CI protections and verifies each release environment enforces the main branch and its sole independent reviewer before granting permissions
+
+#### Scenario: Relay authorization administration
+
+- **WHEN** the access administrator applies the reviewed resource-access plan
+- **THEN** the administrator provisions separate Send-only and Listen-only rules, the release identity can read only the Send key, and ordinary release deployments cannot modify either rule

@@ -5,7 +5,11 @@ import runpy
 import pytest
 
 from scripts.azure_release import digest, inspect_plan
-from scripts.configure_github import verify_release_ruleset
+from scripts.configure_github import (
+    verify_environment,
+    verify_release_ruleset,
+    workflow_principals,
+)
 
 
 def test_release_ruleset_requires_effective_review_and_ci_parameters():
@@ -47,6 +51,60 @@ def test_release_ruleset_requires_effective_review_and_ci_parameters():
         weak["rules"][index]["parameters"][field] = value
         with pytest.raises(SystemExit, match="Inadequate release protection"):
             verify_release_ruleset(weak, base)
+
+
+def test_environment_requires_main_filter_and_only_the_designated_reviewer():
+    env = {
+        "deployment_branch_policy": {
+            "protected_branches": False,
+            "custom_branch_policies": True,
+        }
+    }
+    user = {"type": "User", "reviewer": {"id": 123}}
+    rule = {"prevent_self_review": True, "reviewers": [user]}
+    policies = [{"name": "main", "type": "branch"}]
+    verify_environment(env, [rule], policies, 123, "example")
+    for bad_env, bad_rule, bad_policies in [
+        ({}, rule, policies),
+        ({"deployment_branch_policy": None}, rule, policies),
+        (
+            env,
+            {**rule, "reviewers": [user, {"type": "User", "reviewer": {"id": 124}}]},
+            policies,
+        ),
+        (env, {**rule, "prevent_self_review": False}, policies),
+        (env, rule, [*policies, {"name": "main", "type": "tag"}]),
+    ]:
+        with pytest.raises(SystemExit):
+            verify_environment(bad_env, [bad_rule], bad_policies, 123, "example")
+
+
+def test_access_identity_separation_uses_canonical_ids():
+    first = "aaaaaaaa-aaaa-4000-8000-aaaaaaaaaaaa"
+    second = "bbbbbbbb-bbbb-4000-8000-bbbbbbbbbbbb"
+    for release, preview, apply in [
+        (first, second, second.upper()),
+        (first, second, first.replace("-", "")),
+    ]:
+        with pytest.raises(SystemExit):
+            workflow_principals(
+                {"accessWorkflowClients": {"preview": preview, "apply": apply}},
+                [{"client": release}],
+            )
+
+
+def test_release_plan_treats_admin_relay_rules_as_read_only():
+    inputs, raw = creation()
+    rule = {
+        "resourceId": GROUP
+        + "/providers/Microsoft.Relay/namespaces/kf-abcdefghijklm/hybridConnections/mcp/authorizationRules/edge-send",
+        "changeType": "Ignore",
+    }
+    raw["changes"].append(rule)
+    assert len(inspect_plan(raw, inputs)["changes"]) == 1
+    rule.update(changeType="Modify", after={"properties": {"rights": ["Listen"]}})
+    with pytest.raises(ValueError, match="Unexpected resource"):
+        inspect_plan(raw, inputs)
 
 
 def test_home_proxy_rejects_private_services_and_non_tls_ports():

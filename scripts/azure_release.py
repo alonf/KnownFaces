@@ -61,7 +61,6 @@ TYPES = {
     "microsoft.web/sites/hybridconnectionnamespaces/relays",
     "microsoft.relay/namespaces",
     "microsoft.relay/namespaces/hybridconnections",
-    "microsoft.relay/namespaces/hybridconnections/authorizationrules",
     "microsoft.storage/storageaccounts",
     "microsoft.storage/storageaccounts/blobservices/containers",
 }
@@ -266,12 +265,18 @@ def inspect_plan(raw, inputs):
             and not change.get("after")
             and not change.get("diagnostics")
             and not change.get("unsupportedReason")
-            and re.fullmatch(
-                r"microsoft\.authorization/(roleassignments|roledefinitions)/[a-f0-9-]{36}",
-                rid.rsplit("/providers/", 1)[-1],
+            and (
+                re.fullmatch(
+                    r"microsoft\.authorization/(roleassignments|roledefinitions)/[a-f0-9-]{36}",
+                    rid.rsplit("/providers/", 1)[-1],
+                )
+                or re.fullmatch(
+                    r"microsoft\.relay/namespaces/kf-[a-z0-9]{13}/hybridconnections/mcp/authorizationrules/(edge-send|home-listen)",
+                    rid.removeprefix(prefix),
+                )
             )
         ):
-            # Separately reviewed bootstrap RBAC is outside this incremental template.
+            # Scoped RBAC and Relay authorization rules belong to the access administrator.
             continue
         if (
             not rid.startswith(prefix)

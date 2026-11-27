@@ -40,50 +40,37 @@ def verify_release_ruleset(live, desired):
                 raise SystemExit(f"Inadequate release protection: {kind}.{field}")
 
 
-def main():
-    p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--config", required=True, type=Path)
-    p.add_argument("--apply", action="store_true")
-    args = p.parse_args()
-    c = config(args.config)
-    if not args.apply:
-        print(
-            "Would add a protected main ruleset, main-only reviewed environments, OIDC settings and release switches for",
-            c["repository"],
-        )
-        return
-    gh = shutil.which("gh")
-    repo = c["repository"]
-    prefix = "repos/" + repo
+def github_api(route, method="GET", body=None):
+    data = command(
+        [shutil.which("gh"), "api", "--method", method, route]
+        + (["--input", "-"] if body is not None else []),
+        json.dumps(body).encode() if body is not None else None,
+    )
+    return json.loads(data) if data else None
 
-    def api(route, method="GET", body=None):
-        data = command(
-            [gh, "api", "--method", method, route]
-            + (["--input", "-"] if body is not None else []),
-            json.dumps(body).encode() if body is not None else None,
-        )
-        return json.loads(data) if data else None
 
+def verify_environment(env, required, policies, reviewer, name):
+    if (
+        env.get("deployment_branch_policy")
+        != {"protected_branches": False, "custom_branch_policies": True}
+        or len(required) != 1
+        or required[0].get("prevent_self_review") is not True
+        or [
+            (r.get("type"), r.get("reviewer", {}).get("id"))
+            for r in required[0].get("reviewers", [])
+        ]
+        != [("User", reviewer)]
+        or [(v.get("type"), v["name"]) for v in policies] != [("branch", "main")]
+    ):
+        raise SystemExit(
+            "GitHub could not verify reviewer and main-only protections for " + name
+        )
+
+
+def check_protections(c, environments, *, create=False):
+    api = github_api
+    prefix = "repos/" + c["repository"]
     reviewer = api("users/" + c["reviewer"])["id"]
-    tenants = azure("account", "show", "--subscription", c["subscription"])["tenantId"]
-    principals = identities(c)
-    access_clients = c.get("accessWorkflowClients", {})
-    if access_clients:
-        if (
-            set(access_clients) != {"preview", "apply"}
-            or len(set(access_clients.values())) != 2
-        ):
-            raise SystemExit(
-                "Provide distinct, preauthorized access preview and apply client IDs"
-            )
-        if {i["client"] for i in principals} & set(access_clients.values()):
-            raise SystemExit(
-                "Access administration requires identities separate from the release jobs"
-            )
-        principals.extend(
-            {"environment": "access-" + k, "client": str(UUID(v))}
-            for k, v in access_clients.items()
-        )
     rule = dict(
         name="KnownFaces protected release",
         target="branch",
@@ -113,7 +100,7 @@ def main():
         ],
     )
     matches = [r for r in api(prefix + "/rulesets") if r["name"] == rule["name"]]
-    if not matches:
+    if not matches and create:
         ruleset_id = api(prefix + "/rulesets", "POST", rule)["id"]
     elif len(matches) != 1:
         raise SystemExit("Ambiguous KnownFaces main ruleset")
@@ -123,10 +110,10 @@ def main():
     existing = {
         e["name"] for e in api(prefix + "/environments?per_page=100")["environments"]
     }
-    for item in principals:
-        name = "knownfaces-" + item["environment"]
+    for environment in environments:
+        name = "knownfaces-" + environment
         endpoint = prefix + "/environments/" + name
-        if name not in existing:
+        if name not in existing and create:
             api(
                 endpoint,
                 "PUT",
@@ -149,17 +136,52 @@ def main():
             r for r in env["protection_rules"] if r["type"] == "required_reviewers"
         ]
         policies = api(endpoint + "/deployment-branch-policies")["branch_policies"]
+        verify_environment(env, required, policies, reviewer, name)
+    return reviewer
+
+
+def workflow_principals(c, principals):
+    access_clients = {
+        k: str(UUID(v)) for k, v in c.get("accessWorkflowClients", {}).items()
+    }
+    if access_clients:
         if (
-            len(required) != 1
-            or not required[0]["prevent_self_review"]
-            or not any(
-                r["reviewer"]["id"] == reviewer for r in required[0]["reviewers"]
-            )
-            or [(v.get("type"), v["name"]) for v in policies] != [("branch", "main")]
+            set(access_clients) != {"preview", "apply"}
+            or len(set(access_clients.values())) != 2
         ):
             raise SystemExit(
-                "GitHub could not verify reviewer and main-only protections for " + name
+                "Provide distinct, preauthorized access preview and apply client IDs"
             )
+        if {str(UUID(i["client"])) for i in principals} & set(access_clients.values()):
+            raise SystemExit(
+                "Access administration requires identities separate from the release jobs"
+            )
+        principals.extend(
+            {"environment": "access-" + k, "client": v}
+            for k, v in access_clients.items()
+        )
+    return principals
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--config", required=True, type=Path)
+    p.add_argument("--apply", action="store_true")
+    args = p.parse_args()
+    c = config(args.config)
+    if not args.apply:
+        print(
+            "Would add a protected main ruleset, main-only reviewed environments, OIDC settings and release switches for",
+            c["repository"],
+        )
+        return
+    gh = shutil.which("gh")
+    repo = c["repository"]
+    tenants = azure("account", "show", "--subscription", c["subscription"])["tenantId"]
+    principals = workflow_principals(c, identities(c))
+    reviewer = check_protections(c, [i["environment"] for i in principals], create=True)
+    for item in principals:
+        name = "knownfaces-" + item["environment"]
         values = dict(
             AZURE_CLIENT_ID=item["client"],
             AZURE_TENANT_ID=tenants,
@@ -207,7 +229,7 @@ def main():
     for key, value in {
         "KF_PROTECTED_APPLY": "verified",
         "KF_AZURE_ENABLED": "true",
-        "KF_ACCESS_ENABLED": "true" if access_clients else "false",
+        "KF_ACCESS_ENABLED": "true" if c.get("accessWorkflowClients") else "false",
     }.items():
         command([gh, "variable", "set", key, "--repo", repo, "--body", value])
     print("Verified GitHub environments and configured their federated identities.")
