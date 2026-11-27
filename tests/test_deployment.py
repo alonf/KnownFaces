@@ -61,7 +61,7 @@ def test_compiled_endpoint_proof_rejects_different_port_and_changed_masked_field
     resource = {
         "type": "Microsoft.Relay/namespaces/hybridConnections",
         "properties": {
-            "userMetadata": '[{"key":"endpoint","value":"knownfaces-mcp.invalid:8094"}]'
+            "userMetadata": '[[{"key":"endpoint","value":"knownfaces-mcp.invalid:8094"}]'
         },
     }
     inputs["template"]["resources"] = [resource]

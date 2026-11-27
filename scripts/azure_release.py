@@ -132,7 +132,7 @@ def review_generated_fields(change, kind, inputs):
         ),
         "microsoft.relay/namespaces/hybridconnections": (
             "properties.userMetadata",
-            '[{"key":"endpoint","value":"knownfaces-mcp.invalid:8094"}]',
+            '[[{"key":"endpoint","value":"knownfaces-mcp.invalid:8094"}]',
             "fixed TCP endpoint knownfaces-mcp.invalid:8094",
         ),
         "microsoft.web/sites/hybridconnectionnamespaces/relays": (
