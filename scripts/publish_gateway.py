@@ -4,12 +4,11 @@ import argparse
 import hashlib
 import json
 import os
-import shutil
 import tempfile
 from pathlib import Path
 from uuid import UUID
 
-from scripts.azure_release import blocked_package_account, digest, run
+from scripts.azure_release import azure_cli, blocked_package_account, digest, run
 from scripts.package_gateway import package
 
 
@@ -96,6 +95,7 @@ def main():
         "siteName": site,
         "location": os.environ["KF_LOCATION"],
         "edgeState": "blocked",
+        "attachRelay": True,
         "packageSha": package_sha,
         "gatewaySha": gateway_sha,
     }
@@ -107,7 +107,7 @@ def main():
 
     def azure(*command):
         return run(
-            [shutil.which("az"), *command, "--subscription", sub, "--only-show-errors"]
+            [*azure_cli(), *command, "--subscription", sub, "--only-show-errors"]
         )
 
     with tempfile.TemporaryDirectory() as directory:

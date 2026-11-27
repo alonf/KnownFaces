@@ -4,6 +4,8 @@ KnownFaces is a self-hosted face directory for camera snapshots. Send it a JPEG 
 
 ## Run locally
 
+For the Azure gateway and home Docker installation, follow the [production deployment runbook](docs/production-deployment.md). It includes the GitHub Actions release stages, Hyper-V creation, existing Linux VM installation, image updates and rollback.
+
 With Docker running, execute `docker compose up -d --build` in this directory. Open [the face directory](http://127.0.0.1:8093/) and sign in with the admin token from the following command. It prints a credential to your local terminal.
 
 ```sh
