@@ -1,0 +1,23 @@
+# Dedicated virtual host on the approved relay edge. The SSH reverse forward
+# binds only its loopback address. No access log, body logging or token handling.
+{$KNOWNFACES_HOST} {
+    @mcp {
+        path /mcp
+        method POST GET DELETE
+    }
+    @metadata {
+        path /.well-known/oauth-protected-resource /.well-known/oauth-protected-resource/mcp
+        method GET
+    }
+    handle @mcp {
+        reverse_proxy 127.0.0.1:18094 {
+            flush_interval -1
+        }
+    }
+    handle @metadata {
+        reverse_proxy 127.0.0.1:18094
+    }
+    handle {
+        respond 404
+    }
+}

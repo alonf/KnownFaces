@@ -1,0 +1,18 @@
+services:
+  knownfaces:
+    build: .
+    ports:
+      - "127.0.0.1:8093:8093"
+    volumes:
+      - gallery:/data
+    environment:
+      KF_WEBHOOK: ${KF_WEBHOOK:-}
+      KF_WEBHOOK_SECRET: ${KF_WEBHOOK_SECRET:-}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD","python","-c","import urllib.request; urllib.request.urlopen('http://127.0.0.1:8093/health',timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+volumes:
+  gallery:

@@ -1,0 +1,96 @@
+name: KnownFaces Azure
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        type: choice
+        required: true
+        default: preview
+        options: [preview, provision-blocked, activate-synthetic]
+      preview_target:
+        description: Target state for a preview
+        type: choice
+        default: blocked
+        options: [blocked, synthetic]
+      reviewed_run:
+        description: Prior successful preview run ID for apply
+        type: string
+      approved_digest:
+        description: Independently reviewed manifest digest for apply
+        type: string
+permissions: {}
+concurrency:
+  group: knownfaces-azure
+  cancel-in-progress: false
+jobs:
+  preview:
+    if: vars.KF_AZURE_ENABLED == 'true' && github.ref == 'refs/heads/main' && github.ref_protected && inputs.operation == 'preview'
+    runs-on: ubuntu-24.04
+    environment: knownfaces-preview
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      KF_GROUP: ${{ secrets.KF_GROUP }}
+      KF_SITE: ${{ secrets.KF_SITE }}
+      KF_LOCATION: ${{ secrets.KF_LOCATION }}
+      TARGET: ${{ inputs.preview_target }}
+      AZURE_CORE_OUTPUT: none
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - run: bash scripts/install-bicep.sh
+      - uses: azure/login@eec3c95657c1536435858eda1f3ff5437fee8474
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+      - run: python3 -m scripts.azure_release preview --target "$TARGET" --record "$RUNNER_TEMP/review.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: reviewed-plan
+          path: ${{ runner.temp }}/review.json
+          retention-days: 3
+          if-no-files-found: error
+  apply:
+    if: vars.KF_AZURE_ENABLED == 'true' && github.ref == 'refs/heads/main' && github.ref_protected && inputs.operation != 'preview' && vars.KF_PROTECTED_APPLY == 'verified'
+    runs-on: ubuntu-24.04
+    environment: knownfaces-apply
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    env:
+      AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      KF_GROUP: ${{ secrets.KF_GROUP }}
+      KF_SITE: ${{ secrets.KF_SITE }}
+      KF_LOCATION: ${{ secrets.KF_LOCATION }}
+      OPERATION: ${{ inputs.operation }}
+      REVIEW_RUN: ${{ inputs.reviewed_run }}
+      APPROVED_DIGEST: ${{ inputs.approved_digest }}
+      AZURE_CORE_OUTPUT: none
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { persist-credentials: false }
+      - name: Require a successful independent preview from this workflow and commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$REVIEW_RUN" =~ ^[0-9]+$ && "$APPROVED_DIGEST" =~ ^[0-9a-f]{64}$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$REVIEW_RUN" |
+            jq -e --arg sha "$GITHUB_SHA" '.event=="workflow_dispatch" and .path==".github/workflows/azure.yml" and .head_branch=="main" and .head_sha==$sha and .conclusion=="success"' >/dev/null
+          gh run download "$REVIEW_RUN" -n reviewed-plan -D "$RUNNER_TEMP/reviewed"
+      - run: bash scripts/install-bicep.sh
+      - uses: azure/login@eec3c95657c1536435858eda1f3ff5437fee8474
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+      - run: python3 -m scripts.azure_release "$OPERATION" --approved "$RUNNER_TEMP/reviewed/review.json" --digest "$APPROVED_DIGEST"
+  manual-only:
+    if: vars.KF_AZURE_ENABLED == 'true' && github.ref == 'refs/heads/main' && inputs.operation != 'preview' && vars.KF_PROTECTED_APPLY != 'verified'
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo 'CI apply is disabled. Use the independently approved operator procedure.' >&2; exit 1

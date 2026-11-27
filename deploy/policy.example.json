@@ -1,0 +1,12 @@
+{
+  "resource": "https://knownfaces.example.invalid/mcp",
+  "tenant_id": "00000000-0000-4000-8000-000000000001",
+  "api_id": "00000000-0000-4000-8000-000000000002",
+  "connector_id": "00000000-0000-4000-8000-000000000003",
+  "authorized_user_oid": "00000000-0000-4000-8000-000000000004",
+  "recognize_enabled": false,
+  "manage_enabled": false,
+  "cameras": {},
+  "subjects": {},
+  "snapshots": {}
+}

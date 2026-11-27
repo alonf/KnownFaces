@@ -1,0 +1,1 @@
+"""KnownFaces local recognition service."""

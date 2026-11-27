@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>KnownFaces · Face directory</title>
+    <link rel="stylesheet" href="/static/style.css" />
+    <script src="/static/app.js" defer></script>
+  </head>
+  <body>
+    <header>
+      <a href="/" class="brand"
+        ><span class="mark" aria-hidden="true">◎</span> KnownFaces</a
+      ><button id="logout" hidden>Sign out</button>
+    </header>
+    <main>
+      <section id="signin">
+        <h1>Sign in</h1>
+        <form id="login">
+          <label
+            >Administrator token<input
+              name="token"
+              type="password"
+              autocomplete="current-password"
+              required /></label
+          ><button class="primary">Open directory</button>
+        </form>
+      </section>
+      <section id="directory" hidden>
+        <div class="bar">
+          <h1>Face directory</h1>
+          <button id="upload" class="primary">＋ Upload reference</button>
+        </div>
+        <form id="search">
+          <label
+            >Find by full name<input
+              name="name"
+              type="search"
+              placeholder="Full name" /></label
+          ><button>Search</button><button type="reset">Clear</button>
+        </form>
+        <p id="empty" hidden>
+          No faces found. Upload a reference or submit a camera snapshot to
+          start the directory.
+        </p>
+        <div id="cards"></div>
+        <button id="more" hidden>Load more</button>
+      </section>
+      <p role="status" id="status"></p>
+      <dialog id="detail">
+        <button class="close" aria-label="Close">×</button>
+        <h2>Identity details</h2>
+        <img id="portrait" alt="Representative face" /><code
+          id="identity"
+        ></code>
+        <form id="tag">
+          <label>Full name<input name="name" maxlength="200" required /></label
+          ><button class="primary">Save name</button
+          ><button type="button" id="clearName">Remove name</button>
+        </form>
+        <h3>Recent sightings</h3>
+        <div id="history"></div>
+        <h3>Seen together</h3>
+        <div id="together"></div>
+      </dialog>
+      <dialog id="reference">
+        <button class="close" aria-label="Close">×</button>
+        <h2>Upload reference</h2>
+        <form id="enroll">
+          <label
+            >Photo<input
+              name="image"
+              type="file"
+              accept="image/jpeg,image/png"
+              required
+          /></label>
+          <fieldset id="choices"><legend>Select a face</legend></fieldset>
+          <label
+            >Assign to<select name="person_id">
+              <option value="">New identity</option>
+            </select></label
+          ><label id="newName"
+            >Full name<input name="full_name" maxlength="200" /></label
+          ><button class="primary" id="saveRef" disabled>Save reference</button>
+        </form>
+      </dialog>
+    </main>
+  </body>
+</html>

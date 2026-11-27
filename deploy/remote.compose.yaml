@@ -1,0 +1,22 @@
+services:
+  remote-mcp:
+    profiles: [remote-mcp]
+    build: .
+    command: ["uvicorn","knownfaces.remote:create_remote","--factory","--host","0.0.0.0","--port","8094","--no-access-log","--no-proxy-headers"]
+    environment:
+      KF_REMOTE_ENABLED: ${KF_REMOTE_ENABLED:-0}
+      KF_REMOTE_POLICY: /policy.json
+    volumes:
+      - gallery:/data
+      - type: bind
+        source: ${KF_REMOTE_POLICY_FILE:-./deploy/policy.example.json}
+        target: /policy.json
+        read_only: true
+        bind:
+          create_host_path: false
+    ports: ["127.0.0.1:8094:8094"]
+    networks: [remote-mcp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+networks:
+  remote-mcp: {}
