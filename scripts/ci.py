@@ -43,7 +43,7 @@ def main():
                     "build",
                     str(source),
                     "--outfile",
-                    str(Path(directory) / "arm.json"),
+                    str(Path(directory) / (source.stem + ".json")),
                 ]
             )
         payload, _, code_sha = package()

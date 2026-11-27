@@ -2,8 +2,10 @@
 const { spawn } = require('node:child_process');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const site = JSON.parse(fs.readFileSync('/fixture/arm.json')).resources.find(r => r.type === 'Microsoft.Web/sites');
-const settings = site.properties.siteConfig;
+const resources = JSON.parse(fs.readFileSync('/fixture/main.json')).resources;
+const configs = resources.filter(r => r.type === 'Microsoft.Web/sites/config');
+assert.equal(configs.length, 1);
+const settings = configs[0].properties;
 assert.equal(settings.scmIpSecurityRestrictionsDefaultAction, 'Deny');
 assert.equal(settings.httpLoggingEnabled, false);
 assert.equal(settings.requestTracingEnabled, false);
