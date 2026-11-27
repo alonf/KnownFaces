@@ -218,6 +218,15 @@ def main():
                 else:
                     parts = rid.split("/providers/")[-1].split("/")
                     managed = "/".join([parts[0], *parts[1::2]]) in types
+                    if parts[:2] == ["microsoft.authorization", "roleassignments"]:
+                        extended = rid.count("/providers/") > 1
+                        if (
+                            stage == "resource-access"
+                            and not extended
+                            or stage == "permissions"
+                            and extended
+                        ):
+                            managed = False
                 if not managed:
                     continue
             if (

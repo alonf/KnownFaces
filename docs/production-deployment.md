@@ -50,10 +50,10 @@ gh workflow run azure.yml --ref main -f operation=provision-foundation -f review
 
 ## Configure the private Entra client
 
-Use the exact redirect URI shown by the private ChatGPT connection. Run the script as the tenant operator authorized to configure the two dedicated registrations and grant consent to the single approved user.
+The API and client can be created before a connector exists. Omit the optional redirect on the first run, then rerun with the exact callback displayed by ChatGPT. This preserves the client secret. Run the script as the tenant operator authorized to configure the two dedicated registrations and grant consent to the single approved user.
 
 ```powershell
-python -m scripts.configure_entra --config $cfg --redirect '<exact ChatGPT callback>' --private-dir "$private\connector" --apply
+python -m scripts.configure_entra --config $cfg --private-dir "$private\connector" --apply
 ```
 
 The script configures a v2 API, registers the three delegated scopes, grants read to one user, and writes `policy.json` and `connector.json` locally. Use a private user-only directory. The client secret is used only in ChatGPT. For a new gallery, start with empty subjects, enroll the synthetic visitor locally, then add its alias through the reviewed policy installation below. Keep the private policy and connector credential on the home side.
@@ -89,6 +89,8 @@ Connect obtains only `mcp/home-listen` on the home host and transfers it on the 
 
 ## Update and roll back
 
+When already signed into the Linux guest, the equivalent local entry points are `bash infra/home/knownfaces-home.sh Install "$(git rev-parse HEAD)" /private/policy.json` and `bash infra/home/knownfaces-home.sh Update "$(git rev-parse HEAD)"`. To connect from the guest, use `Connect SHA SUBSCRIPTION GROUP NAMESPACE` with a home-side Azure CLI login authorized for the Listen rule. Both launchers use the same guest installer.
+
 ```powershell
 & $hostScript @guest -Action Update -Release (git rev-parse HEAD) -Apply
 & $hostScript @guest -Action Disconnect -Release (git rev-parse HEAD) -Apply
@@ -98,4 +100,4 @@ Update rebuilds from the supplied commit, preserves the policy and volume, waits
 
 ## ChatGPT acceptance
 
-In ChatGPT on the web add a private custom MCP server, choose Server URL, and use the deployed canonical `https://<actual-site-host>/mcp`. Select OAuth with the client ID and secret from the private connector file. Record discovery, redirect, S256, consent, one bounded synthetic read, one denied edit, unchanged gallery, and refresh. The tenant previously omitted S256 from issuer discovery. Direct Entra compatibility and Azure streaming require a live test. [ChatGPT connection guide](https://developers.openai.com/api/docs/guides/custom-mcp-server) · [Microsoft Hybrid Connections](https://learn.microsoft.com/en-us/azure/app-service/app-service-hybrid-connections)
+In ChatGPT on the web add a private custom MCP server, choose Server URL, and use the deployed canonical `https://<actual-site-host>/mcp`. Select OAuth with the client ID and secret from the private connector file. Run the Entra configuration command again with `--redirect <exact-ChatGPT-callback>` before completing sign-in. Record discovery, redirect, S256, consent, one bounded synthetic read, one denied edit, unchanged gallery, and refresh. The tenant previously omitted S256 from issuer discovery. Direct Entra compatibility and Azure streaming require a live test. [ChatGPT connection guide](https://developers.openai.com/api/docs/guides/custom-mcp-server) · [Microsoft Hybrid Connections](https://learn.microsoft.com/en-us/azure/app-service/app-service-hybrid-connections)

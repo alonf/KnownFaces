@@ -15,12 +15,12 @@ def main():
     cli = argparse.ArgumentParser(description=__doc__)
     cli.add_argument("--config", type=Path, required=True)
     cli.add_argument("--private-dir", type=Path, required=True)
-    cli.add_argument("--redirect", required=True)
+    cli.add_argument("--redirect", help="Exact callback from ChatGPT when available")
     cli.add_argument("--apply", action="store_true")
     args = cli.parse_args()
     c = config(args.config)
-    redirect = urlsplit(args.redirect)
-    if (
+    redirect = urlsplit(args.redirect or "")
+    if args.redirect and (
         redirect.scheme != "https"
         or redirect.netloc != "chatgpt.com"
         or redirect.query
@@ -135,7 +135,7 @@ def main():
         "PATCH",
         "applications/" + client["id"],
         dict(
-            web={"redirectUris": [args.redirect]},
+            **({"web": {"redirectUris": [args.redirect]}} if args.redirect else {}),
             requiredResourceAccess=[
                 {
                     "resourceAppId": api["appId"],

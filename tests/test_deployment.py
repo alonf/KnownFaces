@@ -1,8 +1,34 @@
+import asyncio
 import copy
+import runpy
 
 import pytest
 
 from scripts.azure_release import digest, inspect_plan
+
+
+def test_home_proxy_rejects_private_services_and_non_tls_ports():
+    handler = runpy.run_path("infra/home/relay-proxy.py")["connect"]
+
+    async def exercise():
+        server = await asyncio.start_server(handler, "127.0.0.1", 0)
+        async with server:
+            for target in (
+                "knownfaces-mcp.invalid:8094",
+                "127.0.0.1:8093",
+                "fixture.servicebus.windows.net:80",
+                "fixture.servicebus.windows.net.example.invalid:443",
+            ):
+                reader, writer = await asyncio.open_connection(
+                    "127.0.0.1", server.sockets[0].getsockname()[1]
+                )
+                writer.write(f"CONNECT {target} HTTP/1.1\r\n\r\n".encode())
+                await writer.drain()
+                assert b"403 Forbidden" in await asyncio.wait_for(reader.read(), 2)
+                writer.close()
+                await writer.wait_closed()
+
+    asyncio.run(exercise())
 
 
 GROUP = "/subscriptions/00000000-0000-4000-8000-000000000001/resourceGroups/example"

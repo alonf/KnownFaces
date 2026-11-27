@@ -29,6 +29,7 @@ infra/home/New-KnownFacesGuest.ps1
 infra/home/compose.yaml
 infra/home/convert-qcow2.ps1
 infra/home/install.sh
+infra/home/knownfaces-home.sh
 infra/home/relay-proxy.py
 infra/home/start-hcm.sh
 infra/main.bicep
