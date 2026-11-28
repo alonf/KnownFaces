@@ -4,6 +4,7 @@ import runpy
 
 import pytest
 
+from scripts import configure_github
 from scripts.azure_release import digest, inspect_plan
 from scripts.configure_github import (
     verify_environment,
@@ -29,7 +30,9 @@ def test_release_ruleset_requires_effective_review_and_ci_parameters():
             {
                 "type": "required_status_checks",
                 "parameters": {
-                    "required_status_checks": [{"context": "verify", "integration_id": 15368}],
+                    "required_status_checks": [
+                        {"context": "verify", "integration_id": 15368}
+                    ],
                     "strict_required_status_checks_policy": True,
                 },
             },
@@ -53,6 +56,63 @@ def test_release_ruleset_requires_effective_review_and_ci_parameters():
         weak["rules"][index]["parameters"][field] = value
         with pytest.raises(SystemExit, match="Inadequate release protection"):
             verify_release_ruleset(weak, base)
+
+
+@pytest.mark.parametrize(
+    "legacy_fields", [{}, {"integration_id": None}, {"integration_id": -1}]
+)
+def test_reviewed_ruleset_upgrade_preserves_other_protections(
+    monkeypatch, capsys, legacy_fields
+):
+    repository = "example/KnownFaces"
+    live = configure_github.release_ruleset()
+    live.update(id=42, source_type="Repository", source=repository)
+    params = live["rules"][-1]["parameters"]
+    params["required_status_checks"] = [
+        {"context": "verify", **legacy_fields},
+        {"context": "extra", "integration_id": 99},
+    ]
+    live["rules"][-2]["parameters"]["required_approving_review_count"] = 2
+    expected = copy.deepcopy(live)
+    expected["rules"][-1]["parameters"]["required_status_checks"][0][
+        "integration_id"
+    ] = 15368
+    calls = []
+
+    def api(route, method="GET", body=None):
+        assert route == "repos/example/KnownFaces/rulesets/42"
+        calls.append(method)
+        if method == "PUT":
+            assert body == {"rules": expected["rules"]}
+            live.update(copy.deepcopy(body))
+        return copy.deepcopy(live)
+
+    monkeypatch.setattr(configure_github, "github_api", api)
+    configure_github.migrate_ruleset(repository, 42)
+    seal = capsys.readouterr().out.split()[-1]
+    assert calls == ["GET"]
+    live["updated_at"] = "changed"
+    with pytest.raises(SystemExit, match="approved migration"):
+        configure_github.migrate_ruleset(repository, 42, seal)
+    assert calls == ["GET", "GET"]
+    configure_github.migrate_ruleset(repository, 42)
+    seal = capsys.readouterr().out.split()[-1]
+    calls.clear()
+    configure_github.migrate_ruleset(repository, 42, seal)
+    assert calls == ["GET", "PUT", "GET"]
+    assert live == {**expected, "updated_at": "changed"}
+    configure_github.migrate_ruleset(repository, 42, seal)
+    assert calls[-2:] == ["GET", "GET"]
+
+
+def test_migration_rejects_other_weakened_protections(monkeypatch):
+    live = configure_github.release_ruleset()
+    live.update(id=1, source_type="Repository", source="example/repo")
+    live["rules"][-1]["parameters"]["required_status_checks"] = [{"context": "verify"}]
+    live["rules"][-2]["parameters"]["required_approving_review_count"] = 0
+    monkeypatch.setattr(configure_github, "github_api", lambda route: live)
+    with pytest.raises(SystemExit, match="required_approving_review_count"):
+        configure_github.migrate_ruleset("example/repo", 1, "old-preview")
 
 
 def test_environment_requires_main_filter_and_only_the_designated_reviewer():

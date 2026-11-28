@@ -30,6 +30,24 @@ python -m scripts.configure_github --config $cfg --apply
 
 This creates a main-branch ruleset and main-only environments with an independent reviewer, configures OIDC IDs and target settings, and enables the manual workflow. Publish the reviewed source before bootstrapping the GitHub settings. For every apply or publication, the named independent reviewer approves the GitHub environment with the exact comment `approve <review-digest>`. Before Azure login the job checks GitHub's approval history for that reviewer, comment, environment and run. An administrator bypass without that approval fails this check. GitHub's environment REST API does not expose an administrator-bypass toggle. The script fails closed if the account plan cannot enforce the required environment protections. After configuring GitHub, preview and separately apply the `permissions` stage. It reads the effective branch and environment protections again before granting workload roles. Initial source publication, identity creation and each Azure apply retain their approval boundaries.
 
+### Upgrade an existing release ruleset
+
+Earlier installations may have a required `verify` check that accepts results from any source. Ordinary setup rejects that configuration. Keep release workflows disabled during migration. In a repository administrator session, list the repository-owned rulesets and use the ID for **KnownFaces protected release**. A new installation with no existing ruleset can use the normal setup above.
+
+```powershell
+$repo = (Get-Content -Raw $cfg | ConvertFrom-Json).repository
+gh api --paginate "repos/$repo/rulesets?includes_parents=false&per_page=100" --jq '.[] | [.id,.name] | @tsv'
+python -m scripts.configure_github --config $cfg --migrate-ruleset <ruleset-id>
+```
+
+Have the reviewer inspect the current ruleset and confirm the repository, ID, and proposed binding of `verify` to the GitHub Actions app (15368). Schedule the apply with a single ruleset editor because GitHub updates the rules array in one operation. Use the reviewed digest in that window.
+
+```powershell
+python -m scripts.configure_github --config $cfg --migrate-ruleset <ruleset-id> --apply --digest <approved-digest>
+```
+
+The command re-reads the existing active ruleset, checks the digest, updates its rules in place, and reads them back to verify the protections. A changed plan requires a fresh preview and review. After migration, repeat the normal setup and target-account protection checks before granting Azure permissions. [GitHub repository ruleset API](https://docs.github.com/en/rest/repos/rules#update-a-repository-ruleset)
+
 ## Deploy Azure through Actions
 
 Use the **KnownFaces Azure** workflow on protected main. The commands below show the first deployment.

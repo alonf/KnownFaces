@@ -1,11 +1,13 @@
 """Configure deployment trust on the specified GitHub repository after the trust Bicep stage."""
 
 import argparse
+import copy
 import json
 import shutil
 from pathlib import Path
 from uuid import UUID
 
+from scripts.azure_release import digest
 from scripts.bootstrap_infra import azure, command, config, identities
 
 
@@ -69,11 +71,8 @@ def verify_environment(env, required, policies, reviewer, name):
         )
 
 
-def check_protections(c, environments, *, create=False):
-    api = github_api
-    prefix = "repos/" + c["repository"]
-    reviewer = api("users/" + c["reviewer"])["id"]
-    rule = dict(
+def release_ruleset():
+    return dict(
         name="KnownFaces protected release",
         target="branch",
         enforcement="active",
@@ -103,6 +102,60 @@ def check_protections(c, environments, *, create=False):
             },
         ],
     )
+
+
+def migrate_ruleset(repository, ruleset_id, approved_digest=None):
+    desired = release_ruleset()
+    route = f"repos/{repository}/rulesets/{ruleset_id}"
+    live = github_api(route)
+    if (
+        live.get("source_type") != "Repository"
+        or live.get("source", "").casefold() != repository.casefold()
+        or live.get("id") != ruleset_id
+        or live.get("name") != desired["name"]
+    ):
+        raise SystemExit("Expected the repository-owned KnownFaces release ruleset")
+    proposed = copy.deepcopy(live)
+    status = [r for r in proposed["rules"] if r["type"] == "required_status_checks"]
+    if len(status) != 1:
+        raise SystemExit("Expected one required status checks rule")
+    checks = [
+        c
+        for c in status[0]["parameters"]["required_status_checks"]
+        if c["context"] == "verify"
+    ]
+    if len(checks) != 1:
+        raise SystemExit("Expected one verify status check")
+    previous = checks[0].get("integration_id")
+    if previous == 15368:
+        verify_release_ruleset(live, desired)
+        print("Verified existing GitHub Actions binding. Migration already complete.")
+        return
+    if previous not in (None, -1):
+        raise SystemExit("The verify check already names a different integration")
+    checks[0]["integration_id"] = 15368
+    verify_release_ruleset(proposed, desired)
+    seal = digest([route, live, proposed["rules"]])
+    print(
+        f"{repository} ruleset {ruleset_id}: bind verify to GitHub Actions (15368). Review digest {seal}"
+    )
+    if approved_digest is None:
+        return
+    if approved_digest != seal:
+        raise SystemExit("Ruleset differs from the approved migration preview")
+    github_api(route, "PUT", {"rules": proposed["rules"]})
+    saved = github_api(route)
+    verify_release_ruleset(saved, desired)
+    if saved["rules"] != proposed["rules"]:
+        raise SystemExit("Saved rules differ from the reviewed migration")
+    print("Verified migrated ruleset")
+
+
+def check_protections(c, environments, *, create=False):
+    api = github_api
+    prefix = "repos/" + c["repository"]
+    reviewer = api("users/" + c["reviewer"])["id"]
+    rule = release_ruleset()
     matches = [r for r in api(prefix + "/rulesets") if r["name"] == rule["name"]]
     if not matches and create:
         ruleset_id = api(prefix + "/rulesets", "POST", rule)["id"]
@@ -171,8 +224,22 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--config", required=True, type=Path)
     p.add_argument("--apply", action="store_true")
+    p.add_argument(
+        "--migrate-ruleset",
+        type=int,
+        metavar="ID",
+        help="Preview the existing repository ruleset upgrade in isolation",
+    )
+    p.add_argument("--digest", help="Approved ruleset migration preview digest")
     args = p.parse_args()
+    if args.migrate_ruleset is None and args.digest is not None:
+        p.error("--digest requires --migrate-ruleset")
+    if args.migrate_ruleset is not None and args.apply != (args.digest is not None):
+        p.error("Applying a migration requires both --apply and --digest")
     c = config(args.config)
+    if args.migrate_ruleset is not None:
+        migrate_ruleset(c["repository"], args.migrate_ruleset, args.digest)
+        return
     if not args.apply:
         print(
             "Would add a protected main ruleset, main-only reviewed environments, OIDC settings and release switches for",
