@@ -63,15 +63,9 @@ resource connection 'Microsoft.Relay/namespaces/hybridConnections@2024-01-01' = 
     userMetadata: '[{"key":"endpoint","value":"knownfaces-mcp.invalid:8094"}]'
   }
 }
-resource send 'Microsoft.Relay/namespaces/hybridConnections/authorizationRules@2024-01-01' = {
+resource send 'Microsoft.Relay/namespaces/hybridConnections/authorizationRules@2024-01-01' existing = {
   parent: connection
   name: 'edge-send'
-  properties: { rights: ['Send'] }
-}
-resource listener 'Microsoft.Relay/namespaces/hybridConnections/authorizationRules@2024-01-01' = {
-  parent: connection
-  name: 'home-listen'
-  properties: { rights: ['Listen'] }
 }
 
 resource site 'Microsoft.Web/sites@2024-11-01' = {
@@ -131,6 +125,6 @@ resource binding 'Microsoft.Web/sites/hybridConnectionNamespaces/relays@2024-11-
     serviceBusNamespace: relay.name
     serviceBusSuffix: '.servicebus.windows.net'
     sendKeyName: send.name
-    sendKeyValue: send.listKeys().primaryKey
+    sendKeyValue: attachRelay ? send.listKeys().primaryKey : ''
   }
 }

@@ -4,7 +4,169 @@ import runpy
 
 import pytest
 
+from scripts import configure_github
 from scripts.azure_release import digest, inspect_plan
+from scripts.configure_github import (
+    verify_environment,
+    verify_release_ruleset,
+    workflow_principals,
+)
+
+
+def test_release_ruleset_requires_effective_review_and_ci_parameters():
+    base = dict(
+        target="branch",
+        enforcement="active",
+        bypass_actors=[],
+        conditions={"ref_name": {"include": ["refs/heads/main"], "exclude": []}},
+        rules=[
+            {
+                "type": "pull_request",
+                "parameters": {
+                    "required_approving_review_count": 1,
+                    "require_last_push_approval": True,
+                },
+            },
+            {
+                "type": "required_status_checks",
+                "parameters": {
+                    "required_status_checks": [
+                        {"context": "verify", "integration_id": 15368}
+                    ],
+                    "strict_required_status_checks_policy": True,
+                },
+            },
+        ],
+    )
+    stronger = copy.deepcopy(base)
+    stronger["rules"][0]["parameters"]["required_approving_review_count"] = 2
+    stronger["rules"][1]["parameters"]["required_status_checks"].append(
+        {"context": "extra"}
+    )
+    verify_release_ruleset(stronger, base)
+    for index, field, value in [
+        (0, "required_approving_review_count", 0),
+        (0, "require_last_push_approval", False),
+        (1, "required_status_checks", [{"context": "other", "integration_id": 15368}]),
+        (1, "required_status_checks", [{"context": "verify"}]),
+        (1, "required_status_checks", [{"context": "verify", "integration_id": 1}]),
+        (1, "strict_required_status_checks_policy", False),
+    ]:
+        weak = copy.deepcopy(base)
+        weak["rules"][index]["parameters"][field] = value
+        with pytest.raises(SystemExit, match="Inadequate release protection"):
+            verify_release_ruleset(weak, base)
+
+
+@pytest.mark.parametrize(
+    "legacy_fields", [{}, {"integration_id": None}, {"integration_id": -1}]
+)
+def test_reviewed_ruleset_upgrade_preserves_other_protections(
+    monkeypatch, capsys, legacy_fields
+):
+    repository = "example/KnownFaces"
+    live = configure_github.release_ruleset()
+    live.update(id=42, source_type="Repository", source=repository)
+    params = live["rules"][-1]["parameters"]
+    params["required_status_checks"] = [
+        {"context": "verify", **legacy_fields},
+        {"context": "extra", "integration_id": 99},
+    ]
+    live["rules"][-2]["parameters"]["required_approving_review_count"] = 2
+    expected = copy.deepcopy(live)
+    expected["rules"][-1]["parameters"]["required_status_checks"][0][
+        "integration_id"
+    ] = 15368
+    calls = []
+
+    def api(route, method="GET", body=None):
+        assert route == "repos/example/KnownFaces/rulesets/42"
+        calls.append(method)
+        if method == "PUT":
+            assert body == {"rules": expected["rules"]}
+            live.update(copy.deepcopy(body))
+        return copy.deepcopy(live)
+
+    monkeypatch.setattr(configure_github, "github_api", api)
+    configure_github.migrate_ruleset(repository, 42)
+    seal = capsys.readouterr().out.split()[-1]
+    assert calls == ["GET"]
+    live["updated_at"] = "changed"
+    with pytest.raises(SystemExit, match="approved migration"):
+        configure_github.migrate_ruleset(repository, 42, seal)
+    assert calls == ["GET", "GET"]
+    configure_github.migrate_ruleset(repository, 42)
+    seal = capsys.readouterr().out.split()[-1]
+    calls.clear()
+    configure_github.migrate_ruleset(repository, 42, seal)
+    assert calls == ["GET", "PUT", "GET"]
+    assert live == {**expected, "updated_at": "changed"}
+    configure_github.migrate_ruleset(repository, 42, seal)
+    assert calls[-2:] == ["GET", "GET"]
+
+
+def test_migration_rejects_other_weakened_protections(monkeypatch):
+    live = configure_github.release_ruleset()
+    live.update(id=1, source_type="Repository", source="example/repo")
+    live["rules"][-1]["parameters"]["required_status_checks"] = [{"context": "verify"}]
+    live["rules"][-2]["parameters"]["required_approving_review_count"] = 0
+    monkeypatch.setattr(configure_github, "github_api", lambda route: live)
+    with pytest.raises(SystemExit, match="required_approving_review_count"):
+        configure_github.migrate_ruleset("example/repo", 1, "old-preview")
+
+
+def test_environment_requires_main_filter_and_only_the_designated_reviewer():
+    env = {
+        "deployment_branch_policy": {
+            "protected_branches": False,
+            "custom_branch_policies": True,
+        }
+    }
+    user = {"type": "User", "reviewer": {"id": 123}}
+    rule = {"prevent_self_review": True, "reviewers": [user]}
+    policies = [{"name": "main", "type": "branch"}]
+    verify_environment(env, [rule], policies, 123, "example")
+    for bad_env, bad_rule, bad_policies in [
+        ({}, rule, policies),
+        ({"deployment_branch_policy": None}, rule, policies),
+        (
+            env,
+            {**rule, "reviewers": [user, {"type": "User", "reviewer": {"id": 124}}]},
+            policies,
+        ),
+        (env, {**rule, "prevent_self_review": False}, policies),
+        (env, rule, [*policies, {"name": "main", "type": "tag"}]),
+    ]:
+        with pytest.raises(SystemExit):
+            verify_environment(bad_env, [bad_rule], bad_policies, 123, "example")
+
+
+def test_access_identity_separation_uses_canonical_ids():
+    first = "aaaaaaaa-aaaa-4000-8000-aaaaaaaaaaaa"
+    second = "bbbbbbbb-bbbb-4000-8000-bbbbbbbbbbbb"
+    for release, preview, apply in [
+        (first, second, second.upper()),
+        (first, second, first.replace("-", "")),
+    ]:
+        with pytest.raises(SystemExit):
+            workflow_principals(
+                {"accessWorkflowClients": {"preview": preview, "apply": apply}},
+                [{"client": release}],
+            )
+
+
+def test_release_plan_treats_admin_relay_rules_as_read_only():
+    inputs, raw = creation()
+    rule = {
+        "resourceId": GROUP
+        + "/providers/Microsoft.Relay/namespaces/kf-abcdefghijklm/hybridConnections/mcp/authorizationRules/edge-send",
+        "changeType": "Ignore",
+    }
+    raw["changes"].append(rule)
+    assert len(inspect_plan(raw, inputs)["changes"]) == 1
+    rule.update(changeType="Modify", after={"properties": {"rights": ["Listen"]}})
+    with pytest.raises(ValueError, match="Unexpected resource"):
+        inspect_plan(raw, inputs)
 
 
 def test_home_proxy_rejects_private_services_and_non_tls_ports():

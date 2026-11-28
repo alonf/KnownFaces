@@ -132,7 +132,11 @@ def main():
         target = ["group", "--resource-group", c["trustGroup"]]
         params = dict(repository=c["repository"], prefix=c["siteName"])
     elif stage == "permissions":
+        from scripts.configure_github import check_protections
+
         params = dict(principals=identities(c))
+        environments = [i["environment"] for i in params["principals"]]
+        check_protections(c, environments)
     else:
         ids = {i["environment"]: i["principal"] for i in identities(c)}
         site = azure(
@@ -258,6 +262,8 @@ def main():
             print("Review digest", digest(review))
         else:
             require_review(review, json.loads(args.approved.read_bytes()), args.digest)
+            if stage == "permissions":
+                check_protections(c, environments)
             azure(
                 "deployment",
                 target[0],

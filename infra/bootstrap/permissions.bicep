@@ -24,7 +24,6 @@ var writes = [
   'Microsoft.Web/sites/hybridConnectionNamespaces/relays/write'
   'Microsoft.Relay/namespaces/write'
   'Microsoft.Relay/namespaces/hybridConnections/write'
-  'Microsoft.Relay/namespaces/hybridConnections/authorizationRules/write'
   'Microsoft.Storage/storageAccounts/write'
   'Microsoft.Storage/storageAccounts/blobServices/containers/write'
 ]
